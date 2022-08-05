@@ -2,3 +2,5 @@
 .*.swo
 *.nfs*
 *__pycache__*
+
+.idea/*
