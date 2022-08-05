@@ -70,7 +70,9 @@ def init_data(
         drop_last=drop_last,
         pin_memory=pin_mem,
         num_workers=num_workers)
-    logger.info('ImageNet unsupervised data loader created')
+
+    data_name = 'ImageNet' if not cifar else 'CIFAR10'
+    logger.info(f'{data_name} unsupervised data loader created')
 
     return (data_loader, dist_sampler)
 

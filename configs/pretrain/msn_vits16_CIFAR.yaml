@@ -47,6 +47,6 @@ optimization:
   warmup: 15
   weight_decay: 0.04
 training:
-  log_freq: 10
+  log_freq: 100
   checkpoint_freq: 25
-  checkpoint_freq_itr: 2500
+  checkpoint_freq_itr: 25000000000

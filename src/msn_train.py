@@ -516,7 +516,6 @@ def init_model(
             torch.nn.init.constant_(m.weight, 1.0)
 
     encoder.to(device)
-    logger.info(encoder)
     return encoder
 
 
