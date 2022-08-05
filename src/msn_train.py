@@ -49,9 +49,6 @@ from torch.nn.parallel import DistributedDataParallel
 
 # --
 log_timings = True
-log_freq = 10
-checkpoint_freq = 25
-checkpoint_freq_itr = 2500
 # --
 
 _GLOBAL_SEED = 0
@@ -81,6 +78,11 @@ def main(args):
     use_pred_head = args['meta']['use_pred_head']
     use_bn = args['meta']['use_bn']
     drop_path_rate = args['meta']['drop_path_rate']
+
+    log_freq = args['training']['log_freq']
+    checkpoint_freq = args['training']['checkpoint_freq']
+    checkpoint_freq_itr = args['training']['checkpoint_freq_itr']
+
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
@@ -380,6 +382,7 @@ def main(args):
 
                 return (float(loss), float(ploss), float(me_max), float(ent),
                         logs, _new_lr, _new_wd, grad_stats)
+
             (loss, ploss, rloss, eloss,
              _logs, _new_lr, _new_wd, grad_stats), etime = gpu_timer(train_step)
             loss_meter.update(loss)
