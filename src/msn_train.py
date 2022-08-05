@@ -44,6 +44,9 @@ from src.data_manager import init_data, make_transforms
 
 from torch.nn.parallel import DistributedDataParallel
 
+import wandb
+
+wandb.init(settings=wandb.Settings(start_method="fork"),project='msn')
 # --
 log_timings = True
 # --
@@ -443,6 +446,20 @@ def main(args):
             eloss_meter.update(eloss)
             maxp_meter.update(_logs['max_t'])
             np_meter.update(_logs['np'])
+
+            wandb.log(
+                {
+                    'loss': loss_meter.val,
+                    'ploss': ploss_meter.val,
+                    'rloss': rloss_meter.val,
+                    'eloss': eloss_meter.val,
+                    'maxp': maxp_meter.val,
+                    'np': np_meter.val,
+                    'epoch': epoch,
+                    'itr': itr,
+                },
+                step=epoch * ipe + itr,
+            )
 
             time_meter.update(etime)
 
