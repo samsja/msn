@@ -16,6 +16,7 @@ from PIL import ImageFilter
 import torch
 import torchvision.transforms as transforms
 import torchvision
+from torchvision.datasets import CIFAR10
 
 _GLOBAL_SEED = 0
 logger = getLogger()
@@ -33,18 +34,31 @@ def init_data(
     training=True,
     copy_data=False,
     drop_last=True,
-    subset_file=None
+    subset_file=None,
+    cifar = False,
 ):
 
-    dataset = ImageNet(
-        root=root_path,
-        image_folder=image_folder,
-        transform=transform,
-        train=training,
-        copy_data=copy_data)
-    if subset_file is not None:
-        dataset = ImageNetSubset(dataset, subset_file)
-    logger.info('ImageNet dataset created')
+
+    if not cifar:
+        dataset = ImageNet(
+            root=root_path,
+            image_folder=image_folder,
+            transform=transform,
+            train=training,
+            copy_data=copy_data)
+        if subset_file is not None:
+            dataset = ImageNetSubset(dataset, subset_file)
+        logger.info('ImageNet dataset created')
+    else:
+        dataset = CIFAR10(
+                    root=root_path,
+                    transform=transform,
+                    train=training,
+                    download=True)
+        logger.info('CIFAR10 dataset created')
+
+
+
     dist_sampler = torch.utils.data.distributed.DistributedSampler(
         dataset=dataset,
         num_replicas=world_size,

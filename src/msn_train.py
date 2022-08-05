@@ -107,6 +107,7 @@ def main(args):
     num_workers = 1 if 'num_workers' not in args['data'] else args['data']['num_workers']
     color_jitter = args['data']['color_jitter_strength']
     root_path = args['data']['root_path']
+    cifar = args['data']['cifar']
     image_folder = args['data']['image_folder']
     patch_drop = args['data']['patch_drop']
     rand_size = args['data']['rand_size']
@@ -210,7 +211,8 @@ def main(args):
          root_path=root_path,
          image_folder=image_folder,
          training=True,
-         copy_data=copy_data)
+         copy_data=copy_data,
+        cifar=cifar)
     ipe = len(unsupervised_loader)
     logger.info(f'iterations per epoch: {ipe}')
 
