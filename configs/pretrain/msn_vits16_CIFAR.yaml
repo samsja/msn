@@ -37,6 +37,7 @@ meta:
   use_bn: true
   use_fp16: false
   use_pred_head: false
+  patch_size: 4
 optimization:
   clip_grad: 3.0
   epochs: 100
@@ -47,6 +48,6 @@ optimization:
   warmup: 15
   weight_decay: 0.04
 training:
-  log_freq: 100
+  log_freq: 10000
   checkpoint_freq: 25
   checkpoint_freq_itr: 25000000000

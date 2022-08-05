@@ -37,13 +37,10 @@ from src.utils import (
     CosineWDSchedule,
     CSVLogger,
     grad_logger,
-    AverageMeter
+    AverageMeter,
 )
 from src.losses import init_msn_loss
-from src.data_manager import (
-    init_data,
-    make_transforms
-)
+from src.data_manager import init_data, make_transforms
 
 from torch.nn.parallel import DistributedDataParallel
 
@@ -78,6 +75,7 @@ def main(args):
     use_pred_head = args['meta']['use_pred_head']
     use_bn = args['meta']['use_bn']
     drop_path_rate = args['meta']['drop_path_rate']
+    patch_size = args['meta']['patch_size']
 
     log_freq = args['training']['log_freq']
     checkpoint_freq = args['training']['checkpoint_freq']
@@ -90,10 +88,22 @@ def main(args):
         torch.cuda.set_device(device)
 
     # -- CRITERTION
-    memax_weight = 1 if 'memax_weight' not in args['criterion'] else args['criterion']['memax_weight']
-    ent_weight = 1 if 'ent_weight' not in args['criterion'] else args['criterion']['ent_weight']
-    freeze_proto = False if 'freeze_proto' not in args['criterion'] else args['criterion']['freeze_proto']
-    use_ent = False if 'use_ent' not in args['criterion'] else args['criterion']['use_ent']
+    memax_weight = (
+        1
+        if 'memax_weight' not in args['criterion']
+        else args['criterion']['memax_weight']
+    )
+    ent_weight = (
+        1 if 'ent_weight' not in args['criterion'] else args['criterion']['ent_weight']
+    )
+    freeze_proto = (
+        False
+        if 'freeze_proto' not in args['criterion']
+        else args['criterion']['freeze_proto']
+    )
+    use_ent = (
+        False if 'use_ent' not in args['criterion'] else args['criterion']['use_ent']
+    )
     reg = args['criterion']['me_max']
     use_sinkhorn = args['criterion']['use_sinkhorn']
     num_proto = args['criterion']['num_proto']
@@ -106,7 +116,9 @@ def main(args):
     # -- DATA
     label_smoothing = args['data']['label_smoothing']
     pin_mem = False if 'pin_mem' not in args['data'] else args['data']['pin_mem']
-    num_workers = 1 if 'num_workers' not in args['data'] else args['data']['num_workers']
+    num_workers = (
+        1 if 'num_workers' not in args['data'] else args['data']['num_workers']
+    )
     color_jitter = args['data']['color_jitter_strength']
     root_path = args['data']['root_path']
     cifar = args['data']['cifar']
@@ -156,13 +168,15 @@ def main(args):
         load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
 
     # -- make csv_logger
-    csv_logger = CSVLogger(log_file,
-                           ('%d', 'epoch'),
-                           ('%d', 'itr'),
-                           ('%.5f', 'msn'),
-                           ('%.5f', 'me_max'),
-                           ('%.5f', 'ent'),
-                           ('%d', 'time (ms)'))
+    csv_logger = CSVLogger(
+        log_file,
+        ('%d', 'epoch'),
+        ('%d', 'itr'),
+        ('%.5f', 'msn'),
+        ('%.5f', 'me_max'),
+        ('%.5f', 'ent'),
+        ('%d', 'time (ms)'),
+    )
 
     # -- init model
     encoder = init_model(
@@ -174,47 +188,54 @@ def main(args):
         bottleneck=bottleneck,
         hidden_dim=hidden_dim,
         output_dim=output_dim,
-        drop_path_rate=drop_path_rate)
+        drop_path_rate=drop_path_rate,
+        patch_size=patch_size,
+    )
+
     target_encoder = copy.deepcopy(encoder)
-    if (world_size > 1):
+    if world_size > 1:
         encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(encoder)
         target_encoder = torch.nn.SyncBatchNorm.convert_sync_batchnorm(target_encoder)
 
     # -- init losses
     msn = init_msn_loss(
-        num_views=focal_views+rand_views,
+        num_views=focal_views + rand_views,
         tau=temperature,
         me_max=reg,
-        return_preds=True)
+        return_preds=True,
+    )
 
     def one_hot(targets, num_classes, smoothing=label_smoothing):
         off_value = smoothing / num_classes
-        on_value = 1. - smoothing + off_value
+        on_value = 1.0 - smoothing + off_value
         targets = targets.long().view(-1, 1).to(device)
-        return torch.full((len(targets), num_classes), off_value, device=device).scatter_(1, targets, on_value)
+        return torch.full(
+            (len(targets), num_classes), off_value, device=device
+        ).scatter_(1, targets, on_value)
 
     # -- make data transforms
     transform = make_transforms(
         rand_size=rand_size,
         focal_size=focal_size,
-        rand_views=rand_views+1,
+        rand_views=rand_views + 1,
         focal_views=focal_views,
-        color_jitter=color_jitter)
+        color_jitter=color_jitter,
+    )
 
     # -- init data-loaders/samplers
-    (unsupervised_loader,
-     unsupervised_sampler) = init_data(
-         transform=transform,
-         batch_size=batch_size,
-         pin_mem=pin_mem,
-         num_workers=num_workers,
-         world_size=world_size,
-         rank=rank,
-         root_path=root_path,
-         image_folder=image_folder,
-         training=True,
-         copy_data=copy_data,
-        cifar=cifar)
+    (unsupervised_loader, unsupervised_sampler) = init_data(
+        transform=transform,
+        batch_size=batch_size,
+        pin_mem=pin_mem,
+        num_workers=num_workers,
+        world_size=world_size,
+        rank=rank,
+        root_path=root_path,
+        image_folder=image_folder,
+        training=True,
+        copy_data=copy_data,
+        cifar=cifar,
+    )
     ipe = len(unsupervised_loader)
     logger.info(f'iterations per epoch: {ipe}')
 
@@ -223,12 +244,14 @@ def main(args):
     if num_proto > 0:
         with torch.no_grad():
             prototypes = torch.empty(num_proto, output_dim)
-            _sqrt_k = (1./output_dim)**0.5
+            _sqrt_k = (1.0 / output_dim) ** 0.5
             torch.nn.init.uniform_(prototypes, -_sqrt_k, _sqrt_k)
             prototypes = torch.nn.parameter.Parameter(prototypes).to(device)
 
             # -- init prototype labels
-            proto_labels = one_hot(torch.tensor([i for i in range(num_proto)]), num_proto)
+            proto_labels = one_hot(
+                torch.tensor([i for i in range(num_proto)]), num_proto
+            )
 
         if not freeze_proto:
             prototypes.requires_grad = True
@@ -246,7 +269,8 @@ def main(args):
         final_lr=final_lr,
         iterations_per_epoch=ipe,
         warmup=warmup,
-        num_epochs=num_epochs)
+        num_epochs=num_epochs,
+    )
     if world_size > 1:
         encoder = DistributedDataParallel(encoder)
         target_encoder = DistributedDataParallel(target_encoder)
@@ -256,11 +280,15 @@ def main(args):
     # -- momentum schedule
     _start_m, _final_m = 0.996, 1.0
     _increment = (_final_m - _start_m) / (ipe * num_epochs * 1.25)
-    momentum_scheduler = (_start_m + (_increment*i) for i in range(int(ipe*num_epochs*1.25)+1))
+    momentum_scheduler = (
+        _start_m + (_increment * i) for i in range(int(ipe * num_epochs * 1.25) + 1)
+    )
 
     # -- sharpening schedule
     _increment_T = (_final_T - _start_T) / (ipe * num_epochs * 1.25)
-    sharpen_scheduler = (_start_T + (_increment_T*i) for i in range(int(ipe*num_epochs*1.25)+1))
+    sharpen_scheduler = (
+        _start_T + (_increment_T * i) for i in range(int(ipe * num_epochs * 1.25) + 1)
+    )
 
     start_epoch = 0
     # -- load training checkpoint
@@ -271,8 +299,9 @@ def main(args):
             r_path=load_path,
             encoder=encoder,
             target_encoder=target_encoder,
-            opt=optimizer)
-        for _ in range(start_epoch*ipe):
+            opt=optimizer,
+        )
+        for _ in range(start_epoch * ipe):
             scheduler.step()
             wd_scheduler.step()
             next(momentum_scheduler)
@@ -295,12 +324,15 @@ def main(args):
             'batch_size': batch_size,
             'world_size': world_size,
             'lr': lr,
-            'temperature': temperature
+            'temperature': temperature,
         }
         if rank == 0:
             torch.save(save_dict, latest_path)
-            if (epoch + 1) % checkpoint_freq == 0 \
-                    or (epoch + 1) % 10 == 0 and epoch < checkpoint_freq:
+            if (
+                (epoch + 1) % checkpoint_freq == 0
+                or (epoch + 1) % 10 == 0
+                and epoch < checkpoint_freq
+            ):
                 torch.save(save_dict, save_path.format(epoch=f'{epoch + 1}'))
 
     # -- TRAINING LOOP
@@ -325,6 +357,7 @@ def main(args):
                 # -- unsupervised imgs
                 imgs = [u.to(device, non_blocking=True) for u in udata]
                 return imgs
+
             imgs, dtime = gpu_timer(load_imgs)
             data_meter.update(dtime)
 
@@ -358,8 +391,9 @@ def main(args):
                     anchor_views=anchor_views,
                     target_views=target_views,
                     proto_labels=proto_labels,
-                    prototypes=prototypes)
-                loss = ploss + memax_weight*me_max + ent_weight*ent
+                    prototypes=prototypes,
+                )
+                loss = ploss + memax_weight * me_max + ent_weight * ent
 
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
@@ -377,14 +411,32 @@ def main(args):
                 # Step 5. momentum update of target encoder
                 with torch.no_grad():
                     m = next(momentum_scheduler)
-                    for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
-                        param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+                    for param_q, param_k in zip(
+                        encoder.parameters(), target_encoder.parameters()
+                    ):
+                        param_k.data.mul_(m).add_((1.0 - m) * param_q.detach().data)
 
-                return (float(loss), float(ploss), float(me_max), float(ent),
-                        logs, _new_lr, _new_wd, grad_stats)
+                return (
+                    float(loss),
+                    float(ploss),
+                    float(me_max),
+                    float(ent),
+                    logs,
+                    _new_lr,
+                    _new_wd,
+                    grad_stats,
+                )
 
-            (loss, ploss, rloss, eloss,
-             _logs, _new_lr, _new_wd, grad_stats), etime = gpu_timer(train_step)
+            (
+                loss,
+                ploss,
+                rloss,
+                eloss,
+                _logs,
+                _new_lr,
+                _new_wd,
+                grad_stats,
+            ), etime = gpu_timer(train_step)
             loss_meter.update(loss)
             ploss_meter.update(ploss)
             rloss_meter.update(rloss)
@@ -402,53 +454,59 @@ def main(args):
             def log_stats():
                 csv_logger.log(epoch + 1, itr, ploss, rloss, eloss, etime)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
-                    logger.info('[%d, %5d] loss: %.3f (%.3f %.3f %.3f) '
-                                '(np: %.1f, max-t: %.3f) '
-                                '[wd: %.2e] [lr: %.2e] '
-                                '[mem: %.2e] '
-                                '(%d ms; %d ms)'
-                                % (epoch + 1, itr,
-                                   loss_meter.avg,
-                                   ploss_meter.avg,
-                                   rloss_meter.avg,
-                                   eloss_meter.avg,
-                                   np_meter.avg,
-                                   maxp_meter.avg,
-                                   _new_wd,
-                                   _new_lr,
-                                   torch.cuda.max_memory_allocated() / 1024.**2,
-                                   time_meter.avg,
-                                   data_meter.avg))
+                    logger.info(
+                        '[%d, %5d] loss: %.3f (%.3f %.3f %.3f) '
+                        '(np: %.1f, max-t: %.3f) '
+                        '[wd: %.2e] [lr: %.2e] '
+                        '[mem: %.2e] '
+                        '(%d ms; %d ms)'
+                        % (
+                            epoch + 1,
+                            itr,
+                            loss_meter.avg,
+                            ploss_meter.avg,
+                            rloss_meter.avg,
+                            eloss_meter.avg,
+                            np_meter.avg,
+                            maxp_meter.avg,
+                            _new_wd,
+                            _new_lr,
+                            torch.cuda.max_memory_allocated() / 1024.0 ** 2,
+                            time_meter.avg,
+                            data_meter.avg,
+                        )
+                    )
 
                     if grad_stats is not None:
-                        logger.info('[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
-                                    % (epoch + 1, itr,
-                                       grad_stats.first_layer,
-                                       grad_stats.last_layer,
-                                       grad_stats.min,
-                                       grad_stats.max))
+                        logger.info(
+                            '[%d, %5d] grad_stats: [%.2e %.2e] (%.2e, %.2e)'
+                            % (
+                                epoch + 1,
+                                itr,
+                                grad_stats.first_layer,
+                                grad_stats.last_layer,
+                                grad_stats.min,
+                                grad_stats.max,
+                            )
+                        )
+
             log_stats()
             assert not np.isnan(loss), 'loss is nan'
 
         # -- Save Checkpoint after every epoch
         logger.info('avg. loss %.3f' % loss_meter.avg)
-        save_checkpoint(epoch+1)
+        save_checkpoint(epoch + 1)
 
 
-def load_checkpoint(
-    device,
-    r_path,
-    prototypes,
-    encoder,
-    target_encoder,
-    opt
-):
+def load_checkpoint(device, r_path, prototypes, encoder, target_encoder, opt):
     checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
     epoch = checkpoint['epoch']
 
     # -- loading encoder
     pretrained_dict = checkpoint['encoder']
-    if ('scaling_module.bias' not in pretrained_dict) and ('scaling_bias' in pretrained_dict):
+    if ('scaling_module.bias' not in pretrained_dict) and (
+        'scaling_bias' in pretrained_dict
+    ):
         pretrained_dict['scaling_module.bias'] = pretrained_dict['scaling_bias']
         del pretrained_dict['scaling_bias']
     msg = encoder.load_state_dict(pretrained_dict)
@@ -458,7 +516,9 @@ def load_checkpoint(
     if target_encoder is not None:
         print(list(checkpoint.keys()))
         pretrained_dict = checkpoint['target_encoder']
-        if ('scaling_module.bias' not in pretrained_dict) and ('scaling_bias' in pretrained_dict):
+        if ('scaling_module.bias' not in pretrained_dict) and (
+            'scaling_bias' in pretrained_dict
+        ):
             pretrained_dict['scaling_module.bias'] = pretrained_dict['scaling_bias']
             del pretrained_dict['scaling_bias']
         msg = target_encoder.load_state_dict(pretrained_dict)
@@ -488,9 +548,22 @@ def init_model(
     hidden_dim=2048,
     output_dim=128,
     drop_path_rate=0.1,
+    patch_size=16,
 ):
-    encoder = deit.__dict__[model_name](drop_path_rate=drop_path_rate)
-    emb_dim = 192 if 'tiny' in model_name else 384 if 'small' in model_name else 768 if 'base' in model_name else 1024 if 'large' in model_name else 1280
+    encoder = deit.__dict__[model_name](
+        drop_path_rate=drop_path_rate, patch_size=patch_size
+    )
+    emb_dim = (
+        192
+        if 'tiny' in model_name
+        else 384
+        if 'small' in model_name
+        else 768
+        if 'base' in model_name
+        else 1024
+        if 'large' in model_name
+        else 1280
+    )
 
     # -- projection head
     encoder.fc = None
@@ -529,39 +602,53 @@ def init_opt(
     prototypes=None,
     wd=1e-6,
     final_wd=1e-6,
-    final_lr=0.0
+    final_lr=0.0,
 ):
     param_groups = [
-        {'params': (p for n, p in encoder.named_parameters()
-                    if ('bias' not in n) and ('bn' not in n) and len(p.shape) != 1)},
-        {'params': (p for n, p in encoder.named_parameters()
-                    if ('bias' in n) or ('bn' in n) or (len(p.shape) == 1)),
-         'WD_exclude': True,
-         'weight_decay': 0}
+        {
+            'params': (
+                p
+                for n, p in encoder.named_parameters()
+                if ('bias' not in n) and ('bn' not in n) and len(p.shape) != 1
+            )
+        },
+        {
+            'params': (
+                p
+                for n, p in encoder.named_parameters()
+                if ('bias' in n) or ('bn' in n) or (len(p.shape) == 1)
+            ),
+            'WD_exclude': True,
+            'weight_decay': 0,
+        },
     ]
     if prototypes is not None:
-        param_groups.append({
-            'params': [prototypes],
-            'lr': ref_lr,
-            'LARS_exclude': True,
-            'WD_exclude': True,
-            'weight_decay': 0
-        })
+        param_groups.append(
+            {
+                'params': [prototypes],
+                'lr': ref_lr,
+                'LARS_exclude': True,
+                'WD_exclude': True,
+                'weight_decay': 0,
+            }
+        )
 
     logger.info('Using AdamW')
     optimizer = torch.optim.AdamW(param_groups)
     scheduler = WarmupCosineSchedule(
         optimizer,
-        warmup_steps=int(warmup*iterations_per_epoch),
+        warmup_steps=int(warmup * iterations_per_epoch),
         start_lr=start_lr,
         ref_lr=ref_lr,
         final_lr=final_lr,
-        T_max=int(1.25*num_epochs*iterations_per_epoch))
+        T_max=int(1.25 * num_epochs * iterations_per_epoch),
+    )
     wd_scheduler = CosineWDSchedule(
         optimizer,
         ref_wd=wd,
         final_wd=final_wd,
-        T_max=int(1.25*num_epochs*iterations_per_epoch))
+        T_max=int(1.25 * num_epochs * iterations_per_epoch),
+    )
     return encoder, optimizer, scheduler, wd_scheduler
 
 
