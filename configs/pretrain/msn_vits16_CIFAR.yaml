@@ -16,10 +16,10 @@ data:
   image_folder: imagenet_full_size/061417/
   label_smoothing: 0.0
   patch_drop: 0.15
-  rand_size: 32
-  focal_size: 14
+  rand_size: 224
+  focal_size: 96
   rand_views: 1
-  focal_views: 5
+  focal_views: 12
   root_path: .
   cifar: true
 logging:
@@ -39,7 +39,7 @@ meta:
   use_pred_head: false
 optimization:
   clip_grad: 3.0
-  epochs: 800
+  epochs: 100
   final_lr: 1.0e-06
   final_weight_decay: 0.4
   lr: 0.001
